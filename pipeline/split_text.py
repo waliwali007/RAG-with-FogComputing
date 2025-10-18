@@ -8,21 +8,26 @@ def extract_article_number(article_text):
     Extrait le numéro d'article en gérant tous les cas spéciaux
     """
     # Cas 1: Article premier
-    if re.match(r'Article\s+premier', article_text, re.IGNORECASE):
+    if re.match(r'Articles?\s+premier', article_text, re.IGNORECASE):
         return "1"
     
-    # Cas 2: Article avec tirets (6-2, 6-3, etc.)
-    match = re.match(r'Article\s+(\d+(?:-\d+)?)', article_text, re.IGNORECASE)
+    # Cas 2: Articles X à Y (pluriel)
+    match = re.match(r'Articles\s+(\d+)\s+à\s+(\d+)', article_text, re.IGNORECASE)
     if match:
-        return match.group(1)
+        return f"{match.group(1)}-{match.group(2)}"
     
-    # Cas 3: Plage d'articles (391 à 396)
+    # Cas 3: Article X à Y (singulier)
     match = re.match(r'Article\s+(\d+)\s+à\s+(\d+)', article_text, re.IGNORECASE)
     if match:
         return f"{match.group(1)}-{match.group(2)}"
     
-    # Cas 4: Article bis, ter, quater
-    match = re.match(r'Article\s+(\d+)\s+(bis|ter|quater|quinquies)', article_text, re.IGNORECASE)
+    # Cas 4: Article avec tirets (6-2, 6-3, etc.)
+    match = re.match(r'Articles?\s+(\d+(?:-\d+)?)', article_text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    
+    # Cas 5: Article bis, ter, quater
+    match = re.match(r'Articles?\s+(\d+)\s+(bis|ter|quater|quinquies)', article_text, re.IGNORECASE)
     if match:
         return f"{match.group(1)}-{match.group(2)}"
     
@@ -32,12 +37,11 @@ def extract_chapter_info(text):
     """
     Extrait le numéro et le titre du chapitre
     """
-    # Recherche "Chapitre" suivi de chiffres romains ou arabes
     patterns = [
-        r'Chapitre\s+([IVXLCDM]+)\s*[:\-]?\s*(.+?)(?=\n|$)',  # Chapitre XIV Contrôle...
-        r'Chapitre\s+(\d+)\s*[:\-]?\s*(.+?)(?=\n|$)',          # Chapitre 14 Contrôle...
-        r'Chapitre\s+([IVXLCDM]+)\s*$',                         # Chapitre XIV (sans titre)
-        r'Chapitre\s+(\d+)\s*$'                                 # Chapitre 14 (sans titre)
+        r'Chapitre\s+([IVXLCDM]+)\s*[:\-]?\s*(.+?)(?=\n|$)',
+        r'Chapitre\s+(\d+)\s*[:\-]?\s*(.+?)(?=\n|$)',
+        r'Chapitre\s+([IVXLCDM]+)\s*$',
+        r'Chapitre\s+(\d+)\s*$'
     ]
     
     for pattern in patterns:
@@ -55,18 +59,21 @@ def split_text_by_single_article(input_file, output_dir, source_name="Code de Tr
 
     enc = tiktoken.get_encoding("cl100k_base")
     
-    # Split sur "Article" en préservant le mot "Article"
-    parts = text.split("Article")
+    # Split sur "Article" OU "Articles" (pluriel)
+    # On utilise une regex pour split tout en conservant le mot
+    parts = re.split(r'(Articles?\s+)', text)
     
     chunks = []
     current_chapter_number = None
     current_chapter_title = None
     
-    for i, part in enumerate(parts):
-        if i == 0:
-            # Texte avant le premier article (préambule, titre, etc.)
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        
+        # Premier segment (avant le premier article)
+        if i == 0 and not re.match(r'Articles?\s+', part):
             if part.strip():
-                # Vérifie s'il y a un chapitre dans le préambule
                 chapter_num, chapter_title = extract_chapter_info(part)
                 if chapter_num:
                     current_chapter_number = chapter_num
@@ -77,12 +84,18 @@ def split_text_by_single_article(input_file, output_dir, source_name="Code de Tr
                     "source": source_name,
                     "text": part.strip()
                 })
+            i += 1
             continue
         
-        # Reconstitue "Article" + son contenu
-        article_text = "Article" + part
+        # Si c'est "Article" ou "Articles", on le combine avec la partie suivante
+        if re.match(r'Articles?\s+', part) and i + 1 < len(parts):
+            article_text = part + parts[i + 1]
+            i += 2
+        else:
+            i += 1
+            continue
         
-        # Vérifie s'il y a un nouveau chapitre dans ce segment
+        # Vérifie s'il y a un nouveau chapitre
         chapter_num, chapter_title = extract_chapter_info(article_text)
         if chapter_num:
             current_chapter_number = chapter_num
@@ -125,10 +138,8 @@ def split_text_by_single_article(input_file, output_dir, source_name="Code de Tr
     # Sauvegarde les chunks
     os.makedirs(output_dir, exist_ok=True)
     for i, chunk in enumerate(chunks):
-        # Calcule le nombre de tokens pour info
         token_count = len(enc.encode(chunk["text"], disallowed_special=()))
         
-        # Sauvegarde en JSON
         with open(os.path.join(output_dir, f"chunk_{i+1}.json"), "w", encoding="utf-8") as f:
             json.dump(chunk, f, ensure_ascii=False, indent=2)
         
