@@ -3,8 +3,10 @@ os.environ["TRANSFORMERS_NO_TF"] = "1"
 import faiss
 import numpy as np
 import torch
+import json
 from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
+import pickle
 
 def mean_pooling(model_output, attention_mask):
     """
@@ -16,19 +18,25 @@ def mean_pooling(model_output, attention_mask):
 
 def load_chunks(directory):
     """
-    Load text chunks from the specified directory.
+    Load JSON chunks with metadata from the specified directory.
+    Returns both the texts and their metadata.
     """
-    chunks = []
-    filenames = sorted(os.listdir(directory))
+    chunks_data = []
+    filenames = sorted(os.listdir(directory), key=lambda x: int(x.split('_')[1].split('.')[0]) if x.startswith('chunk_') else 0)
+    
     for filename in filenames:
-        if filename.endswith(".txt"):
-            with open(os.path.join(directory, filename), 'r', encoding='utf-8') as f:
-                chunks.append(f.read())
-    return chunks
+        if filename.endswith(".json"):
+            filepath = os.path.join(directory, filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                chunks_data.append(data)
+    
+    return chunks_data
 
-def embed_chunks(chunks, batch_size=32):
+def embed_chunks(chunks_data, batch_size=32):
     """
-    Generate embeddings using HuggingFace model
+    Generate embeddings using HuggingFace model.
+    Takes list of chunk dictionaries with metadata.
     """
     # Load model and tokenizer
     model_name = 'sentence-transformers/all-mpnet-base-v2'
@@ -42,9 +50,12 @@ def embed_chunks(chunks, batch_size=32):
 
     embeddings = []
     
+    # Extract texts for embedding
+    texts = [chunk['text'] for chunk in chunks_data]
+    
     # Process chunks in batches
-    for i in tqdm(range(0, len(chunks), batch_size), desc="Generating embeddings"):
-        batch = chunks[i:i + batch_size]
+    for i in tqdm(range(0, len(texts), batch_size), desc="Generating embeddings"):
+        batch = texts[i:i + batch_size]
         
         # Tokenize batch
         encoded_input = tokenizer(
@@ -64,9 +75,9 @@ def embed_chunks(chunks, batch_size=32):
 
     return np.array(embeddings)
 
-def save_faiss_index(embeddings, output_file):
+def save_faiss_index(embeddings, chunks_data, output_index_file, output_metadata_file):
     """
-    Save the embeddings to a FAISS index file using cosine similarity.
+    Save the embeddings to a FAISS index file and metadata to a separate file.
     """
     # Ensure embeddings are float32 (required by FAISS)
     embeddings = np.array(embeddings).astype('float32')
@@ -82,38 +93,55 @@ def save_faiss_index(embeddings, output_file):
     index.add(embeddings)
     
     # Save index to file
-    faiss.write_index(index, output_file)
+    faiss.write_index(index, output_index_file)
+    
+    # Save metadata separately using pickle
+    with open(output_metadata_file, 'wb') as f:
+        pickle.dump(chunks_data, f)
 
 def main():
     """
-    Main function to load chunks, generate embeddings, and save them to a FAISS index.
+    Main function to load chunks, generate embeddings, and save them to a FAISS index with metadata.
     """
     chunks_dir = "chunks"
-    output_file = "faiss_index.index"
+    output_index_file = "faiss_index.index"
+    output_metadata_file = "chunks_metadata.pkl"
 
     print("Starting embedding process...")
 
-    # Load text chunks
+    # Load JSON chunks with metadata
     if not os.path.exists(chunks_dir):
         print(f"Error: Directory '{chunks_dir}' does not exist.")
         return
 
-    chunks = load_chunks(chunks_dir)
-    if not chunks:
-        print(f"Error: No text chunks found in '{chunks_dir}'.")
+    chunks_data = load_chunks(chunks_dir)
+    if not chunks_data:
+        print(f"Error: No JSON chunks found in '{chunks_dir}'.")
         return
 
-    print(f"Loaded {len(chunks)} chunks from '{chunks_dir}'")
+    print(f"Loaded {len(chunks_data)} chunks from '{chunks_dir}'")
+    
+    # Display sample metadata
+    if chunks_data:
+        sample = chunks_data[0]
+        print(f"\nSample chunk metadata:")
+        print(f"  Article: {sample.get('article_number', 'N/A')}")
+        print(f"  Chapter: {sample.get('chapter_number', 'N/A')}")
+        print(f"  Source: {sample.get('source', 'N/A')}")
+        print(f"  Text preview: {sample.get('text', '')[:100]}...\n")
 
     # Embed chunks
-    embeddings = embed_chunks(chunks)
-    print(f"Generated embeddings for {len(chunks)} chunks")
+    embeddings = embed_chunks(chunks_data)
+    print(f"Generated embeddings for {len(chunks_data)} chunks")
 
-    # Save embeddings to FAISS index
-    save_faiss_index(embeddings, output_file)
-    print(f"Saved FAISS index to '{output_file}'")
+    # Save embeddings and metadata
+    save_faiss_index(embeddings, chunks_data, output_index_file, output_metadata_file)
+    print(f"Saved FAISS index to '{output_index_file}'")
+    print(f"Saved metadata to '{output_metadata_file}'")
 
-    print("Embedding process completed.")
+    print("\nEmbedding process completed.")
+    print(f"Total chunks processed: {len(chunks_data)}")
+    print(f"Embedding dimension: {embeddings.shape[1]}")
 
 if __name__ == "__main__":
     main()
