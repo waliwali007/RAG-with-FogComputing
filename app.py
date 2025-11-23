@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.rag_chain import RAGChain
 from pipeline.retriever import EmbeddingRetriever
+from pipeline.master_FOG import DistributedOrchestrator
 
 # Page configuration
 st.set_page_config(
@@ -273,6 +274,8 @@ if 'is_processing' not in st.session_state:
     st.session_state.is_processing = False
 if 'rag_chain' not in st.session_state:
     st.session_state.rag_chain = None
+if 'orchestrator' not in st.session_state:
+    st.session_state.orchestrator = None
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
@@ -296,6 +299,33 @@ def initialize_rag():
         retriever = EmbeddingRetriever(index_path, metadata_path)
         rag_chain = RAGChain(retriever, model_name="mistral")
         return rag_chain, None
+    except Exception as e:
+        return None, str(e)
+
+@st.cache_resource
+def initialize_distributed():
+    """Initialize distributed orchestrator"""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        pipeline_dir = os.path.join(script_dir, "pipeline")
+        
+        index_path = os.path.join(pipeline_dir, "faiss_index.index")
+        metadata_path = os.path.join(pipeline_dir, "chunks_metadata.pkl")
+        
+        if not os.path.exists(index_path):
+            raise FileNotFoundError(f"Faiss index not found at: {index_path}")
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f"Metadata file not found at: {metadata_path}")
+        
+        # Configure your ZeroTier node IPs here
+        node_urls = [
+            "http://192.168.100.1:5000",  # Node 1 - replace with actual ZeroTier IP
+            "http://192.168.100.2:5000"   # Node 2 - replace with actual ZeroTier IP
+        ]
+        
+        retriever = EmbeddingRetriever(index_path, metadata_path)
+        orchestrator = DistributedOrchestrator(node_urls, retriever, model_name="mistral")
+        return orchestrator, None
     except Exception as e:
         return None, str(e)
 
@@ -352,14 +382,23 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # Initialize RAG if not already done
-if st.session_state.rag_chain is None:
-    with st.spinner("Initialisation du système..."):
+if st.session_state.rag_chain is None and st.session_state.mode == 'basique':
+    with st.spinner("Initialisation du système (Mode Basique)..."):
         rag_chain, error = initialize_rag()
         if error:
             st.error(f"Erreur d'initialisation: {error}")
-            st.stop()
-        st.session_state.rag_chain = rag_chain
-        st.success("Système initialisé avec succès")
+        else:
+            st.session_state.rag_chain = rag_chain
+            st.success("Système initialisé avec succès")
+
+elif st.session_state.orchestrator is None and st.session_state.mode == 'distribué':
+    with st.spinner("Initialisation du système distribué (Nœuds ZeroTier)..."):
+        orchestrator, error = initialize_distributed()
+        if error:
+            st.error(f"Erreur d'initialisation distribué: {error}")
+        else:
+            st.session_state.orchestrator = orchestrator
+            st.success("Système distribué initialisé avec succès")
 
 # Main content - Chat-like interface
 st.markdown('<div style="margin-bottom: 20px; font-weight: 600; color: #1f2937; font-size: 18px;">Poserez votre question</div>', unsafe_allow_html=True)
@@ -375,76 +414,78 @@ with col1:
     search_button = st.button("Rechercher", use_container_width=True, type="primary")
 
 if search_button and query:
-    # Check if RAG chain is initialized
-    if st.session_state.rag_chain is None:
-        st.error(" Le système n'est pas initialisé correctement. Veuillez rafraîchir la page.")
+    # Check initialization based on mode
+    if st.session_state.mode == 'basique' and st.session_state.rag_chain is None:
+        st.error("❌ Le système n'est pas initialisé. Veuillez rafraîchir la page.")
+        st.stop()
+    elif st.session_state.mode == 'distribué' and st.session_state.orchestrator is None:
+        st.error("❌ Le système distribué n'est pas initialisé. Vérifiez les nœuds ZeroTier.")
         st.stop()
     
     st.session_state.is_processing = True
     start_time = time.time()
 
-    if st.session_state.mode == 'basique':
-        try:
+    try:
+        if st.session_state.mode == 'basique':
             with st.spinner("Analyse en cours..."):
                 result = st.session_state.rag_chain.generate_answer(query, k=3)
-
-            # STOP TIMER
-            end_time = time.time()
-            st.session_state.query_time = end_time - start_time
-            st.session_state.is_processing = False
-
-            # --- DISPLAY ANSWER ---
-            st.markdown('<div style="margin: 35px 0 15px 0; font-weight: 600; color: #1f2937; font-size: 16px;">RÉPONSE GÉNÉRÉE</div>', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="answer-box">
-                {result['answer']}
-            </div>
-            """, unsafe_allow_html=True)
-
-            # --- DISPLAY REFERENCES ---
-            if result['context']:
-                st.markdown('<div style="margin: 35px 0 15px 0; font-weight: 600; color: #1f2937; font-size: 16px;">ARTICLES RÉFÉRENCÉS</div>', unsafe_allow_html=True)
-                
-                for i, ctx in enumerate(result['context'], 1):
-                    article_num = ctx.get('article_number', 'N/A')
-                    chapter_num = ctx.get('chapter_number', 'N/A')
-                    chapter_title = ctx.get('chapter_title', 'N/A')
-                    similarity = ctx.get('similarity_score', 0)
-                    chunk_text = ctx.get('chunk', '')[:300]
-
-                    chapter_info = ""
-                    if chapter_num != 'N/A':
-                        chapter_info = f"Chapitre {chapter_num}"
-                        if chapter_title != 'N/A':
-                            chapter_info += f" - {chapter_title}"
-
-                    st.markdown(f"""
-                    <div class="context-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <div style="font-weight: 600; color: #1f2937; font-size: 15px;">Article {article_num}</div>
-                            <div style="font-size: 13px; color: #6b7280;">Pertinence: {similarity:.2%}</div>
-                        </div>
-                        {f'<div style="color: #6b7280; font-size: 13px; margin-bottom: 12px;">{chapter_info}</div>' if chapter_info else ''}
-                        <div style="color: #4b5563; line-height: 1.7; font-size: 14px;">{chunk_text}...</div>
-                    </div>
-                    """, unsafe_allow_html=True)
         
-            # Update timer in sidebar WITHOUT rerun
-            with timer_placeholder.container():
+        else:  # distribué
+            with st.spinner("Recherche distribuée en cours sur les nœuds..."):
+                result = st.session_state.orchestrator.generate_answer_distributed(query, k=3)
+
+        # STOP TIMER
+        end_time = time.time()
+        st.session_state.query_time = end_time - start_time
+        st.session_state.is_processing = False
+
+        # --- DISPLAY ANSWER ---
+        st.markdown('<div style="margin: 35px 0 15px 0; font-weight: 600; color: #1f2937; font-size: 16px;">RÉPONSE GÉNÉRÉE</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="answer-box">
+            {result['answer']}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- DISPLAY REFERENCES ---
+        if result['context']:
+            st.markdown('<div style="margin: 35px 0 15px 0; font-weight: 600; color: #1f2937; font-size: 16px;">ARTICLES RÉFÉRENCÉS</div>', unsafe_allow_html=True)
+            
+            for i, ctx in enumerate(result['context'], 1):
+                article_num = ctx.get('article_number', 'N/A')
+                chapter_num = ctx.get('chapter_number', 'N/A')
+                chapter_title = ctx.get('chapter_title', 'N/A')
+                similarity = ctx.get('similarity_score', 0)
+                chunk_text = ctx.get('chunk', '')[:300]
+
+                chapter_info = ""
+                if chapter_num != 'N/A':
+                    chapter_info = f"Chapitre {chapter_num}"
+                    if chapter_title != 'N/A':
+                        chapter_info += f" - {chapter_title}"
+
                 st.markdown(f"""
-                <div class="timer-box">
-                    <div class="timer-value">{st.session_state.query_time:.2f}s</div>
+                <div class="context-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="font-weight: 600; color: #1f2937; font-size: 15px;">Article {article_num}</div>
+                        <div style="font-size: 13px; color: #6b7280;">Pertinence: {similarity:.2%}</div>
+                    </div>
+                    {f'<div style="color: #6b7280; font-size: 13px; margin-bottom: 12px;">{chapter_info}</div>' if chapter_info else ''}
+                    <div style="color: #4b5563; line-height: 1.7; font-size: 14px;">{chunk_text}...</div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        except Exception as e:
-            st.session_state.is_processing = False
-            st.error(f" Erreur lors de la génération de la réponse: {str(e)}")
-
-    else:
-        # Distributed mode (placeholder for now)
-        st.info("Mode distribué: Fonctionnalité en développement")
+    
+        # Update timer
+        with timer_placeholder.container():
+            st.markdown(f"""
+            <div class="timer-box">
+                <div class="timer-value">{st.session_state.query_time:.2f}s</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    except Exception as e:
         st.session_state.is_processing = False
+        st.error(f" Erreur: {str(e)}")
 
 elif search_button and not query:
     st.warning("Veuillez saisir une question.")

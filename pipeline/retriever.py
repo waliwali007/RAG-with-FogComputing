@@ -129,7 +129,7 @@ def main():
                 print()
             
             if result['status'] == 'abrogé':
-                print(f"   ⚠️  STATUS: Abrogé par {result['abrogated_by']}")
+                print(f"    STATUS: Abrogé par {result['abrogated_by']}")
             
             print(f"   Text: {result['chunk'][:200]}...")
 
