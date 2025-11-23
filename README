@@ -1,0 +1,11 @@
+create a network with zero tier "fog"
+#to join the network : zerotier-cli join 632ea290858d13b4
+Managed IP: 10.241.132.84 #Ahmed
+Managed IP: 10.147.20.101 #Nouha
+Managed IP: 10.241.178.195 #Hadeel
+
+add IP Ahmed and Nouha to app.py nodes_url
+
+each node should start the server : 'cd pipeline' then 'python node_server.py --index faiss_index_node1.index --metadata chunks_metadata_node1.pkl --port 5000' (use different ports)
+
+

@@ -319,8 +319,8 @@ def initialize_distributed():
         
         # Configure your ZeroTier node IPs here
         node_urls = [
-            "http://192.168.100.1:5000",  # Node 1 - replace with actual ZeroTier IP
-            "http://192.168.100.2:5000"   # Node 2 - replace with actual ZeroTier IP
+            "http://10.241.132.84:5000",  # Node 1 - Ahmed
+            "http://10.241.140.160:5000"   # Node 2 - Nouha
         ]
         
         retriever = EmbeddingRetriever(index_path, metadata_path)
