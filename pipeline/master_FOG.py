@@ -4,7 +4,7 @@ from pipeline.rag_chain import RAGChain
 from pipeline.retriever import EmbeddingRetriever
 
 class DistributedOrchestrator:
-    def __init__(self, node_urls: List[str], retriever: EmbeddingRetriever, model_name: str = "mistral"):
+    def __init__(self, node_urls: List[str], retriever: EmbeddingRetriever, model_name: str = "mistral:latest"):
         self.node_urls = node_urls
         self.rag_chain = RAGChain(retriever, model_name=model_name)
 
@@ -37,7 +37,7 @@ class DistributedOrchestrator:
             if not retrieved_docs:
                 return {
                     'query': query,
-                    'answer': "Aucun document pertinent trouvé.",
+                    'answer': "Les noeuds ne sont pas connectés.",
                     'context': []
                 }
 
