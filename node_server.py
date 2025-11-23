@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import sys
 import os
-from pathlib import Path
 from pipeline.retriever import EmbeddingRetriever
 
 app = Flask(__name__)
@@ -45,19 +44,8 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 
-    # Resolve paths to absolute paths
-    index_path = Path(args.index).resolve()
-    metadata_path = Path(args.metadata).resolve()
-    
-    # Validate files exist
-    if not index_path.exists():
-        print(f"Error: Index file not found at {index_path}")
-        sys.exit(1)
-    if not metadata_path.exists():
-        print(f"Error: Metadata file not found at {metadata_path}")
-        sys.exit(1)
-
-    retriever = EmbeddingRetriever(str(index_path), str(metadata_path))
+    # no global keyword here
+    retriever = EmbeddingRetriever(args.index, args.metadata)
 
     print(f"Node server running on {args.host}:{args.port}")
     app.run(host=args.host, port=args.port)
