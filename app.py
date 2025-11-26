@@ -319,7 +319,7 @@ def initialize_distributed():
         
         # Configure your ZeroTier node IPs here
         node_urls = [
-            "http://10.241.132.84:5000",  # Node 1 - Ahmed
+            "http://10.241.132.84:5001",  # Node 1 - Ahmed
             "http://10.241.140.160:5000"   # Node 2 - Nouha
         ]
         
@@ -440,7 +440,7 @@ if search_button and query:
         
         else:  # distribué
             with st.spinner("Recherche distribuée en cours sur les nœuds..."):
-                 result = st.session_state.orchestrator.generate_answer_distributed_async(query, k=3)
+                result = st.session_state.orchestrator.generate_answer_distributed_async(query, k=3)
 
         # STOP TIMER
         end_time = time.time()

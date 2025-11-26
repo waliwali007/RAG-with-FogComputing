@@ -78,7 +78,7 @@ Réponse concise et précise: [/INST]"""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "mixtral-8x7b-32768",
+                    "model": "mistral:latest",
                     "messages": [
                         {
                             "role": "system",
