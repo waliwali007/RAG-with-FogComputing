@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.rag_chain import RAGChain
 from pipeline.retriever import EmbeddingRetriever
-from pipeline.master_FOG import DistributedOrchestrator
+from pipeline.master_FOG import OptimizedDistributedOrchestrator
 
 # Page configuration
 st.set_page_config(
@@ -304,7 +304,7 @@ def initialize_rag():
 
 @st.cache_resource
 def initialize_distributed():
-    """Initialize distributed orchestrator"""
+    """Initialize optimized distributed orchestrator"""
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         pipeline_dir = os.path.join(script_dir, "pipeline")
@@ -324,7 +324,15 @@ def initialize_distributed():
         ]
         
         retriever = EmbeddingRetriever(index_path, metadata_path)
-        orchestrator = DistributedOrchestrator(node_urls, retriever, model_name="mistral")
+        
+        # ✅ UTILISER LA VERSION OPTIMISÉE
+        orchestrator = OptimizedDistributedOrchestrator(
+            node_urls, 
+            retriever, 
+            model_name="mistral",
+            use_cache=True  # Activer le cache pour encore plus de vitesse
+        )
+        
         return orchestrator, None
     except Exception as e:
         return None, str(e)
@@ -432,7 +440,7 @@ if search_button and query:
         
         else:  # distribué
             with st.spinner("Recherche distribuée en cours sur les nœuds..."):
-                result = st.session_state.orchestrator.generate_answer_distributed(query, k=3)
+                 result = st.session_state.orchestrator.generate_answer_distributed_async(query, k=3)
 
         # STOP TIMER
         end_time = time.time()
